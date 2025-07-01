@@ -1,0 +1,361 @@
+---
+title: "Projekt"
+author: "Hubert Siluk"
+date: "2025-06-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(Metrics)
+```
+
+```{r}
+dane_test <- read_excel("C:\\Users\\Hubert Siluk\\Desktop\\Projekt_pakiety_stat\\Dane_testowe.xlsx")
+dane_walid <- read_excel("C:\\Users\\Hubert Siluk\\Desktop\\Projekt_pakiety_stat\\Dane_walidacyjne.xlsx")
+dane_test$nach <- NULL
+dane_walid$nach <- NULL
+```
+
+```{r}
+dane_laczne <- rbind(dane_test, dane_walid)
+```
+
+```{r}
+model_lm <- lm (puz~., data = dane_laczne)
+summary(model_lm)
+```
+
+```{r}
+plot(model_lm$fitted.values, dane_laczne$puz,
+     main = "Predykcja vs. rzeczywista powierzchnia użytkowa",
+     xlab = "Predykcja", ylab = "Rzeczywista wartość")
+abline(0, 1, col = "red")
+```
+
+```{r}
+rmse_val <- rmse(dane_laczne$puz, model_lm$fitted.values)
+mae_val <- mae(dane_laczne$puz, model_lm$fitted.values)
+cat("RMSE:", rmse_val, "\nMAE:", mae_val)
+```
+```{r}
+library(glmnet)
+```
+
+```{r}
+X_train <- as.matrix(dane_test[, -which(names(dane_test) == "puz")])
+y_train <- dane_test$puz
+
+X_val <- as.matrix(dane_walid[, -which(names(dane_walid) == "puz")])
+y_val <- dane_walid$puz
+```
+
+```{r}
+regresja_lasso <- cv.glmnet(X_train, y_train, alpha = 1)
+lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = regresja_lasso$lambda.min)
+pred_lasso <- predict(lasso_model, newx = X_val)
+rmse_lasso <- rmse(y_val, pred_lasso)
+mae_lasso <- mae(y_val, pred_lasso)
+```
+
+```{r}
+regresja_ridge <- cv.glmnet(X_train, y_train, alpha = 0)
+ridge_model <- glmnet(X_train, y_train, alpha = 0, lambda = regresja_ridge$lambda.min)
+pred_ridge <- predict(ridge_model, newx = X_val)
+rmse_ridge <- rmse(y_val, pred_ridge)
+mae_ridge <- mae(y_val, pred_ridge)
+```
+
+```{r}
+regresja_elnet <- cv.glmnet(X_train, y_train, alpha = 0.5)
+elnet_model <- glmnet(X_train, y_train, alpha = 0.5, lambda = regresja_elnet$lambda.min)
+pred_elnet <- predict(elnet_model, newx = X_val)
+rmse_elnet <- rmse(y_val, pred_elnet)
+mae_elnet <- mae(y_val, pred_elnet)
+```
+
+```{r}
+pred_lasso <- predict(lasso_model, newx = X_val)
+pred_ridge <- predict(ridge_model, newx = X_val)
+pred_elnet <- predict(elnet_model, newx = X_val)
+```
+
+```{r}
+cat("LASSO:\nRMSE:", rmse_lasso, "\tMAE:", mae_lasso, "\n\n")
+cat("Ridge:\nRMSE:", rmse_ridge, "\tMAE:", mae_ridge, "\n\n")
+cat("Elastic Net:\nRMSE:", rmse_elnet, "\tMAE:", mae_elnet, "\n")
+```
+
+```{r}
+plot(regresja_lasso)
+abline(v = log(regresja_lasso$lambda.min), col = "red", lty = 2)
+title("Wartości lambda")
+```
+```{r}
+plot(pred_lasso, y_val,
+     main = "Predykcja vs rzeczywiste wartości",
+     xlab = "Predykcja", ylab = "Rzeczywista wartość")
+abline(0, 1, col = "red")
+```
+
+```{r}
+coef(lasso_model)
+```
+
+```{r}
+plot(pred_ridge, y_val,
+     main = "Predykcja vs Rzeczywiste Wartości",
+     xlab = "Wartości przewidywane", ylab = "Wartości rzeczywiste",
+     col = "blue", pch = 19)
+abline(0, 1, col = "red", lty = 2)
+
+coef(ridge_model)
+```
+
+```{r}
+plot(pred_elnet, y_val,
+     main = "Predykcja vs Rzeczywiste Wartości",
+     xlab = "Wartości przewidywane", ylab = "Wartości rzeczywiste",
+     col = "blue", pch = 19)
+abline(0, 1, col = "red", lty = 2)
+
+coef(elnet_model)
+```
+
+
+```{r}
+library(tibble)
+library(reshape2)
+library(ggplot2)
+```
+
+```{r}
+lasso_coef <- as.vector(coef(regresja_lasso, s = "lambda.min"))
+ridge_coef <- as.vector(coef(regresja_ridge, s = "lambda.min"))
+elnet_coef <- as.vector(coef(regresja_elnet, s = "lambda.min"))
+```
+
+```{r}
+nazwy <- rownames(coef(lasso_model))
+tabela <- data.frame(
+  Zmienna = nazwy,
+  LASSO = round(lasso_coef, 2),
+  RIDGE = round(ridge_coef, 2),
+  ELNET = round(elnet_coef, 2)
+)
+
+print(tabela)
+```
+```{r}
+df_long <- melt(tabela, id.vars = "Zmienna", variable.name = "Model", value.name = "Współczynnik")
+
+ggplot(df_long[df_long$Zmienna != "(Intercept)", ], aes(x = Zmienna, y = Współczynnik, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  ggtitle("Porównanie współczynników: LASSO, Ridge i Elastic Net") +
+  ylab("Wartość współczynnika") +
+  xlab("Zmienna") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+library(xgboost)
+```
+
+```{r}
+dtrain <- xgb.DMatrix(data = X_train, label = y_train)
+dval <- xgb.DMatrix(data = X_val, label = y_val)
+parametry <- list(objective = "reg:squarederror",eval_metric = "rmse",
+  eta = 0.1,
+  max_depth = 3
+)
+model_xgb <- xgb.train( params = parametry,data = dtrain, nrounds = 100, watchlist = list(val = dval),verbose = 0)
+pred_xgb <- predict(model_xgb, newdata = dval)
+rmse_xgb <- rmse(y_val, pred_xgb)
+mae_xgb <- mae(y_val, pred_xgb)
+cat("XGBoost:\nRMSE:", rmse_xgb, "\tMAE:", mae_xgb, "\n")
+
+plot(pred_xgb, y_val,
+     main = "XGBoost: Predykcja vs Rzeczywiste Wartości",
+     xlab = "Predykcja", ylab = "Rzeczywiste",
+     col = "darkorange", pch = 19)
+abline(0, 1, col = "red", lty = 2)
+```
+```{r}
+importance_matrix <- xgb.importance(model = model_xgb)
+print(importance_matrix)
+xgb.plot.importance(importance_matrix, top_n = 10, main = "Ważność zmiennych w modelu XGBoost")
+```
+```{r}
+wyniki <- data.frame(
+  Model = c("LASSO", "Ridge", "Elastic Net", "XGBoost"),
+  RMSE = c(rmse_lasso, rmse_ridge, rmse_elnet, rmse_xgb),
+  MAE = c(mae_lasso, mae_ridge, mae_elnet, mae_xgb)
+)
+wyniki_long <- melt(wyniki, id.vars = "Model")
+
+ggplot(wyniki_long, aes(x = Model, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Porównanie modeli: RMSE i MAE",
+       x = "Model", y = "Błąd",
+       fill = "Metryka") +
+  theme_minimal()
+```
+```{r}
+library(neuralnet)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+```
+
+```{r}
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+dane_norm <- as.data.frame(lapply(dane_laczne, normalize))
+X_train <- dane_norm[1:nrow(dane_test), ]
+X_val <- dane_norm[(nrow(dane_test)+1):nrow(dane_norm), ]
+features <- names(X_train)[names(X_train) != "puz"]
+formuła <- as.formula(paste("puz ~", paste(features, collapse = " + ")))
+
+set.seed(123)
+
+model_1 <- neuralnet::neuralnet(formuła, data = X_train, hidden = c(5, 3, 2), linear.output = TRUE)
+model_2 <- neuralnet::neuralnet(formuła, data = X_train, hidden = c(10, 6, 3), linear.output = TRUE)
+model_3 <- neuralnet::neuralnet(formuła, data = X_train, hidden = c(9, 3, 3), linear.output = TRUE)
+model_4 <- neuralnet::neuralnet(formuła, data = X_train, hidden = c(12, 6, 4), linear.output = TRUE)
+model_5 <- neuralnet::neuralnet(formuła, data = X_train, hidden = c(12, 8, 2), linear.output = TRUE)
+model_6 <- neuralnet::neuralnet(formuła, data = X_train, hidden = c(8, 5, 3), linear.output = TRUE)
+model_7 <- neuralnet::neuralnet(formuła, data = X_train, hidden = c(14, 7, 2), linear.output = TRUE)
+
+pred_1 <- neuralnet::compute(model_1, X_val[, features])$net.result
+pred_2 <- neuralnet::compute(model_2, X_val[, features])$net.result
+pred_3 <- neuralnet::compute(model_3, X_val[, features])$net.result
+pred_4 <- neuralnet::compute(model_4, X_val[, features])$net.result
+pred_5 <- neuralnet::compute(model_5, X_val[, features])$net.result
+pred_6 <- neuralnet::compute(model_6, X_val[, features])$net.result
+pred_7 <- neuralnet::compute(model_7, X_val[, features])$net.result
+
+
+rmse <- function(true, pred) sqrt(mean((true - pred)^2))
+mae <- function(true, pred) mean(abs(true - pred))
+
+cat("Model 1 - RMSE:", rmse(X_val$puz, pred_1), " MAE:", mae(X_val$puz, pred_1), "\n")
+cat("Model 2 - RMSE:", rmse(X_val$puz, pred_2), " MAE:", mae(X_val$puz, pred_2), "\n")
+cat("Model 3 - RMSE:", rmse(X_val$puz, pred_3), " MAE:", mae(X_val$puz, pred_3), "\n")
+cat("Model 4 - RMSE:", rmse(X_val$puz, pred_4), " MAE:", mae(X_val$puz, pred_4), "\n")
+cat("Model 5 - RMSE:", rmse(X_val$puz, pred_5), " MAE:", mae(X_val$puz, pred_5), "\n")
+cat("Model 6 - RMSE:", rmse(X_val$puz, pred_6), " MAE:", mae(X_val$puz, pred_6), "\n")
+cat("Model 7 - RMSE:", rmse(X_val$puz, pred_7), " MAE:", mae(X_val$puz, pred_7), "\n")
+```
+```{r}
+architektury <- c("5-3-2", "10-6-3", "9-3-3", "12-6-4", "12-8-2", "8-5-3", "14-7-2")
+rmse_vals <- c(
+  rmse(X_val$puz, pred_1), rmse(X_val$puz, pred_2),rmse(X_val$puz, pred_3),rmse(X_val$puz, pred_4),rmse(X_val$puz, pred_5),rmse(X_val$puz, pred_6),rmse(X_val$puz, pred_7)
+)
+
+mae_vals <- c(mae(X_val$puz, pred_1),mae(X_val$puz, pred_2),mae(X_val$puz, pred_3),mae(X_val$puz, pred_4),mae(X_val$puz, pred_5),mae(X_val$puz, pred_6),mae(X_val$puz, pred_7)
+)
+
+wyniki_df <- data.frame(Architektura = architektury,RMSE = rmse_vals,MAE = mae_vals
+)
+wyniki_long <- melt(wyniki_df, id.vars = "Architektura")
+ggplot(wyniki_long, aes(x = Architektura, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Porównanie sieci neuronowych: RMSE i MAE",
+       x = "Architektura sieci",
+       y = "Błąd",
+       fill = "Metryka") +
+  theme_minimal()
+```
+```{r}
+library(kableExtra)
+```
+
+
+```{r}
+
+idx_best_nn <- which.min(rmse_vals)
+najlepsza_nn <- architektury[idx_best_nn]
+rmse_best_nn <- rmse_vals[idx_best_nn]
+mae_best_nn <- mae_vals[idx_best_nn]
+porownanie <- data.frame(
+  Model = c("Regresja liniowa", "LASSO", "Ridge", "Elastic Net", "XGBoost", paste("Sieć neuronowa", najlepsza_nn)),
+  RMSE = round(c(rmse_val, rmse_lasso, rmse_ridge, rmse_elnet, rmse_xgb, rmse_best_nn), 2),
+  MAE  = round(c(mae_val, mae_lasso, mae_ridge, mae_elnet, mae_xgb, mae_best_nn), 2)
+)
+porownanie %>%
+  kable("html", caption = "Porównanie skuteczności modeli (RMSE i MAE)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 14, full_width = F) %>%
+  row_spec(0, bold = TRUE, color = "black", background = "#f0f0f0") %>%
+  row_spec(1:nrow(porownanie), color = "black")
+```
+
+```{r}
+waga_lm     <- 1 / rmse_val
+waga_xgb    <- 1 / rmse_xgb
+waga_nn     <- 1 / rmse_best_nn
+suma_wag <- waga_lm + waga_xgb + waga_nn
+
+w_lm  <- waga_lm / suma_wag
+w_xgb <- waga_xgb / suma_wag
+w_nn  <- waga_nn / suma_wag
+pred_hybrydowa <- w_lm * predict(model_lm, dane_walid) +
+                  w_xgb * pred_xgb +
+                  w_nn * pred_4  
+rmse_hybryda <- rmse(y_val, pred_hybrydowa)
+mae_hybryda  <- mae(y_val, pred_hybrydowa)
+cat("Model hybrydowy:\nRMSE:", round(rmse_hybryda, 2), "\tMAE:", round(mae_hybryda, 2), "\n")
+```
+
+```{r}
+waga_lm  <- 1 / rmse_val
+waga_xgb <- 1 / rmse_xgb
+suma_wag <- waga_lm + waga_xgb
+
+w_lm <- waga_lm / suma_wag
+w_xgb <- waga_xgb / suma_wag
+pred_hybrydowa <- w_lm * predict(model_lm, dane_walid) +
+                  w_xgb * pred_xgb
+rmse_hybryda_2 <- rmse(y_val, pred_hybrydowa)
+mae_hybryda_2 <-mae(y_val, pred_hybrydowa)
+cat("Model hybrydowy:\nRMSE:", round(rmse_hybryda_2, 2), "\tMAE:", round(mae_hybryda_2, 2), "\n")
+```
+
+```{r}
+rmse_hybryd2 <- rmse(y_val, pred_hybrydowa)
+mae_hybryd2  <- mae(y_val, pred_hybrydowa)
+
+porownanie <- rbind(
+  porownanie,
+  data.frame(
+    Model = "Hybryda: LM + XGBoost",
+    RMSE = round(rmse_hybryd2, 2),
+    MAE = round(mae_hybryd2, 2)
+  )
+)
+
+porownanie %>%
+  kable("html", caption = "Porównanie skuteczności modeli (RMSE i MAE) – z hybrydą") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 14, full_width = F) %>%
+  row_spec(0, bold = TRUE, color = "black", background = "#f0f0f0") %>%
+  row_spec(1:nrow(porownanie), color = "black")
+
+```
+
+```{r}
+plot(pred_hybrydowa, y_val,
+     main = "Hybryda: Predykcja vs Rzeczywista wartość",
+     xlab = "Predykcja", ylab = "Rzeczywiste",
+     col = "purple", pch = 19)
+abline(0, 1, col = "red", lty = 2)
+
+```
+
